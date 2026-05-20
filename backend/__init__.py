@@ -1,0 +1,2 @@
+"""MoneyMaker backend package."""
+
