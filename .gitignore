@@ -1,0 +1,44 @@
+# Python bytecode and test caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+
+# IDE and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Runtime state
+celerybeat-schedule
+celerybeat-schedule.*
+*.pid
+*.log
+
+# Build and packaging output
+build/
+dist/
+*.egg-info/
+
+# Local database and notebook artifacts
+*.sqlite
+*.sqlite3
+*.db
+.ipynb_checkpoints/
