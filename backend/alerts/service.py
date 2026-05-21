@@ -6,6 +6,10 @@ from typing import Any
 from backend.core.config import Settings, get_settings
 from backend.core.math_utils import safe_float
 from backend.db.repository import SupabaseRepository
+from backend.notification_control.service import (
+    record_notification_sent,
+    should_send_notification,
+)
 
 
 def should_generate_buy_alert(signal: Mapping[str, Any], settings: Settings | None = None) -> bool:
@@ -51,6 +55,7 @@ def generate_alerts(
         stock_ids = [stock["id"] for stock in repository.list_stocks()]
 
     alert_rows: list[dict[str, Any]] = []
+    latest_regime = repository.latest_market_regime()
     for stock_id in stock_ids:
         signal = repository.latest_signal_for_stock(stock_id)
         if not signal:
@@ -63,8 +68,23 @@ def generate_alerts(
             continue
 
         for user_id in repository.users_interested_in_stock(stock_id):
-            alert_rows.append(_alert_row(user_id, signal, alert_type))
+            decision = should_send_notification(
+                repository=repository,
+                user_id=user_id,
+                signal=signal,
+                alert_type=alert_type,
+                regime=latest_regime,
+                settings=settings,
+            )
+            if decision.allowed:
+                alert_rows.append(_alert_row(user_id, signal, alert_type))
 
     stored = repository.create_alerts(alert_rows)
+    sent_by_user: dict[str, int] = {}
+    for row in stored:
+        user_id = str(row.get("user_id") or "")
+        if user_id:
+            sent_by_user[user_id] = sent_by_user.get(user_id, 0) + 1
+    for user_id, count in sent_by_user.items():
+        record_notification_sent(repository, user_id, count=count)
     return {"alerts": len(stored)}
-

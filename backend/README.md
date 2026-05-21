@@ -16,6 +16,14 @@ FastAPI backend for an AI trading assistant that ingests stock prices, computes 
 - `simulation/`: paper-trading backtest engine with slippage, costs, and partial fills.
 - `alerts/`: buy/sell alert rules and alert persistence.
 - `feedback/`: prediction outcome evaluation and rolling model performance metrics.
+- `signal_quality/`: live signal outcome evaluation and regime-specific model ranking.
+- `drift_detection/`: anti-overfitting drift scoring and model weight controls.
+- `notification_control/`: adaptive throttling, cooldowns, and user trust metrics.
+- `paper_analytics/`: mobile-ready paper portfolio, equity curve, and trade history views.
+- `reliability/`: retry, idempotency, queue deduplication, dead letters, and circuit breakers.
+- `observability/`: JSON logs, correlation IDs, metrics, and health checks.
+- `analytics_api/`: production dashboard endpoints.
+- `guardrails/`: safety caps, defensive mode, and signal audit tracing.
 - `jobs/`: Celery worker and beat tasks.
 - `db/`: Supabase client, repository, and SQL migrations.
 - `tests/`: pytest coverage for ingestion, features, models, ensemble, alerts, and API routes.
@@ -87,6 +95,18 @@ docker compose -f backend/docker-compose.yml up --build
 - `GET /regime`
 - `GET /portfolio-weights`
 - `GET /backtest-results`
+- `GET /health/system`
+- `GET /health/models`
+- `GET /health/realtime`
+- `GET /health/notifications`
+- `GET /analytics/signals`
+- `GET /analytics/models`
+- `GET /analytics/regimes`
+- `GET /analytics/notifications`
+- `GET /analytics/paper-performance`
+- `GET /analytics/paper-history`
+- `GET /analytics/paper-equity-curve`
+- `GET /analytics/paper-regime-returns`
 
 All mobile endpoints expect `Authorization: Bearer <supabase-access-token>`.
 

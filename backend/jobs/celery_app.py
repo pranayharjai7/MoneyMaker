@@ -41,6 +41,14 @@ celery_app.conf.beat_schedule = {
         "task": "backend.jobs.tasks.market_regime_detection",
         "schedule": 60 * 60 * 6,
     },
+    "live-signal-quality-evaluation": {
+        "task": "backend.jobs.tasks.live_signal_quality_evaluation",
+        "schedule": 60 * 60 * 6,
+    },
+    "model-drift-detection": {
+        "task": "backend.jobs.tasks.model_drift_detection",
+        "schedule": 60 * 60 * 6,
+    },
     "weekly-meta-model-retraining": {
         "task": "backend.jobs.tasks.meta_model_retraining",
         "schedule": 60 * 60 * 24 * 7,

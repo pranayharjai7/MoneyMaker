@@ -30,6 +30,9 @@ class FakeRepository:
     def list_signals(self):
         return []
 
+    def list_signals_for_quality(self, cutoff_timestamp: str, limit: int = 1000):
+        return []
+
     def get_signals_for_ticker(self, ticker: str):
         return []
 
@@ -86,6 +89,52 @@ class FakeRepository:
             }
         ]
 
+    def list_model_regime_performance(self):
+        return [
+            {
+                "model_name": "momentum",
+                "regime": "BULL TREND",
+                "win_rate": 0.7,
+                "sharpe_ratio": 1.4,
+                "average_return": 0.02,
+                "sample_size": 12,
+                "profit_factor": 1.8,
+                "max_drawdown": -0.03,
+                "updated_at": "2026-05-20T00:00:00+00:00",
+            }
+        ]
+
+    def list_live_signal_performance(self, limit: int = 1000):
+        return [
+            {
+                "signal_id": "signal-1",
+                "stock_id": "stock-1",
+                "model_used": "momentum",
+                "regime": "BULL TREND",
+                "predicted_return": 0.03,
+                "actual_return": 0.04,
+                "horizon_days": 5,
+                "outcome": "win",
+                "pnl": 0.04,
+                "created_at": "2026-05-20T00:00:00+00:00",
+            }
+        ][:limit]
+
+    def list_recent_model_drift_events(
+        self,
+        since_timestamp: str | None = None,
+        limit: int = 100,
+    ):
+        return [
+            {
+                "model_name": "mean_reversion",
+                "drift_score": 0.55,
+                "drift_type": "calibration_decay",
+                "severity": "medium",
+                "created_at": "2026-05-20T00:00:00+00:00",
+            }
+        ][:limit]
+
     def list_prediction_outcomes(self, since_timestamp: str | None = None, limit: int = 10000):
         return [
             {
@@ -129,6 +178,9 @@ class FakeRepository:
             "feature_payload": {"reference_ticker": "SPX"},
         }
 
+    def get_market_regime_at_or_before(self, timestamp: str):
+        return self.latest_market_regime()
+
     def latest_backtest_result(self):
         return {
             "id": "backtest-1",
@@ -145,6 +197,41 @@ class FakeRepository:
             "result_payload": {},
             "created_at": "2026-05-20T00:00:00+00:00",
         }
+
+    def list_notification_metrics(self, limit: int = 1000):
+        return [
+            {
+                "user_id": "user-1",
+                "notifications_sent": 10,
+                "opened": 6,
+                "ignored": 2,
+                "engagement_score": 0.6,
+            }
+        ][:limit]
+
+    def list_recent_notification_events(
+        self,
+        status: str | None = None,
+        limit: int = 100,
+    ):
+        rows = [
+            {
+                "status": "sent",
+                "created_at": "2026-05-20T00:00:00+00:00",
+            }
+        ]
+        if status:
+            rows = [row for row in rows if row["status"] == status]
+        return rows[:limit]
+
+    def list_signal_audit_logs(self, limit: int = 100):
+        return [
+            {
+                "stock_id": "stock-1",
+                "timestamp": "2026-05-20T00:00:00+00:00",
+                "guardrail_decision": {"allowed": True, "violations": []},
+            }
+        ][:limit]
 
 
 def test_stocks_endpoint_uses_repository_override() -> None:
@@ -232,3 +319,28 @@ def test_backtest_results_endpoint_uses_repository_override() -> None:
 
     assert response.status_code == 200
     assert response.json()["sharpe_ratio"] == 1.8
+
+
+def test_phase4_analytics_endpoints_use_repository_override() -> None:
+    app = create_app()
+    app.dependency_overrides[get_repository] = lambda: FakeRepository()
+    app.dependency_overrides[get_current_user] = lambda: AuthUser(
+        id="user-1", email="test@example.com", role="authenticated", claims={}
+    )
+    client = TestClient(app)
+
+    signals_response = client.get("/analytics/signals")
+    models_response = client.get("/analytics/models")
+    notifications_response = client.get("/analytics/notifications")
+    paper_response = client.get("/analytics/paper-performance")
+    health_response = client.get("/health/notifications")
+
+    assert signals_response.status_code == 200
+    assert signals_response.json()["summary"]["sample_size"] == 1
+    assert models_response.status_code == 200
+    assert models_response.json()["drift"]["active_model_weight_multipliers"]["mean_reversion"] == 0.6
+    assert notifications_response.status_code == 200
+    assert notifications_response.json()["summary"]["notifications_sent"] == 10
+    assert paper_response.status_code == 200
+    assert paper_response.json()["portfolio_return"] == 0.124
+    assert health_response.status_code == 200

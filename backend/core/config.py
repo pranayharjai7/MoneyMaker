@@ -31,6 +31,22 @@ class Settings(BaseSettings):
     alert_min_expected_return: float = 0.03
     alert_max_risk_score: float = 0.55
 
+    notification_max_buy_signals_per_day: int = 5
+    notification_max_sell_alerts_per_day: int = 5
+    notification_cooldown_hours_per_stock: int = 12
+    notification_default_min_probability: float = 0.62
+    notification_high_volatility_min_probability: float = 0.72
+
+    drift_min_accuracy: float = 0.52
+    drift_min_sharpe_ratio: float = 0.15
+    drift_max_calibration_error: float = 0.18
+    drift_prediction_instability_threshold: float = 0.28
+
+    guardrail_max_position_size: float = 0.12
+    guardrail_max_sector_exposure: float = 0.35
+    guardrail_max_daily_signal_volume: int = 25
+    guardrail_extreme_volatility_threshold: float = 0.45
+
     cors_origins: str = "*"
 
     model_config = SettingsConfigDict(
@@ -39,7 +55,18 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    @field_validator("alert_min_buy_probability", "alert_max_risk_score")
+    @field_validator(
+        "alert_min_buy_probability",
+        "alert_max_risk_score",
+        "notification_default_min_probability",
+        "notification_high_volatility_min_probability",
+        "drift_min_accuracy",
+        "drift_max_calibration_error",
+        "drift_prediction_instability_threshold",
+        "guardrail_max_position_size",
+        "guardrail_max_sector_exposure",
+        "guardrail_extreme_volatility_threshold",
+    )
     @classmethod
     def _validate_probability(cls, value: float) -> float:
         if not 0 <= value <= 1:

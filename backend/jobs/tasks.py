@@ -8,9 +8,11 @@ from backend.data_pipeline.service import update_daily_prices
 from backend.ensemble.service import generate_ensemble_signals
 from backend.features.indicators import recalculate_indicators
 from backend.feedback.service import evaluate_prediction_outcomes
+from backend.drift_detection.service import detect_model_drift
 from backend.jobs.celery_app import celery_app
 from backend.meta_model.service import train_meta_model
 from backend.models.registry import run_model_predictions
+from backend.signal_quality.service import evaluate_live_signal_quality
 from backend.portfolio.optimizer import optimize_portfolio_weights
 from backend.regime.service import refresh_market_regime
 from backend.simulation.engine import run_paper_trading_simulation
@@ -44,6 +46,16 @@ def alert_generation() -> dict[str, int]:
 @celery_app.task(name="backend.jobs.tasks.feedback_evaluation")
 def feedback_evaluation() -> dict[str, int]:
     return evaluate_prediction_outcomes()
+
+
+@celery_app.task(name="backend.jobs.tasks.live_signal_quality_evaluation")
+def live_signal_quality_evaluation() -> dict[str, int]:
+    return evaluate_live_signal_quality()
+
+
+@celery_app.task(name="backend.jobs.tasks.model_drift_detection")
+def model_drift_detection() -> dict[str, object]:
+    return detect_model_drift()
 
 
 @celery_app.task(name="backend.jobs.tasks.calibration_retraining")
@@ -87,12 +99,15 @@ def run_full_signal_pipeline() -> dict[str, object]:
     market = asyncio.run(update_daily_prices(lookback_days=10))
     indicators = recalculate_indicators()
     predictions = run_model_predictions()
+    feedback = evaluate_prediction_outcomes()
     calibration = calibrate_recent_predictions()
     detected_regime = refresh_market_regime()
     regime = {
         "current_regime": detected_regime["current_regime"],
         "confidence": detected_regime["confidence"],
     }
+    signal_quality = evaluate_live_signal_quality()
+    drift = detect_model_drift()
     signals = generate_ensemble_signals()
     portfolio = optimize_portfolio_weights()
     simulation_result = run_paper_trading_simulation()
@@ -103,18 +118,19 @@ def run_full_signal_pipeline() -> dict[str, object]:
         "trade_count": simulation_result["trade_count"],
     }
     alerts = generate_alerts()
-    feedback = evaluate_prediction_outcomes()
     return {
         **market,
         **indicators,
         **predictions,
+        **feedback,
         **calibration,
         **regime,
+        **signal_quality,
+        "drift_events": drift["drift_events"],
         **signals,
         **portfolio,
         **simulation,
         **alerts,
-        **feedback,
     }
 
 

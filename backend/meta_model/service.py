@@ -12,6 +12,12 @@ from sklearn.linear_model import LogisticRegression
 
 from backend.core.math_utils import clamp, safe_float
 from backend.db.repository import SupabaseRepository
+from backend.drift_detection.service import recent_model_weight_multipliers
+from backend.guardrails.service import (
+    apply_guardrails_to_signal,
+    build_signal_audit_row,
+    evaluate_signal_guardrails,
+)
 
 
 REGIME_STATES = (
@@ -237,7 +243,13 @@ def train_meta_model(
     return model
 
 
-def _adaptive_model_weight(prediction: Mapping[str, Any], performance: Mapping[str, Any] | None) -> float:
+def _adaptive_model_weight(
+    prediction: Mapping[str, Any],
+    performance: Mapping[str, Any] | None,
+    drift_multiplier: float = 1.0,
+) -> float:
+    if drift_multiplier <= 0:
+        return 0.0
     confidence = clamp(safe_float(prediction.get("confidence"), 0.5))
     probability_edge = abs(clamp(safe_float(prediction.get("probability_up"), 0.5)) - 0.5) * 2.0
     if performance:
@@ -246,18 +258,27 @@ def _adaptive_model_weight(prediction: Mapping[str, Any], performance: Mapping[s
         calibration_error = max(0.0, safe_float(performance.get("calibration_error"), 0.25))
         sharpe = safe_float(performance.get("sharpe_contribution"))
         quality = accuracy * max(0.0, 1.0 - brier) * max(0.0, 1.0 - calibration_error)
-        return max(0.0001, confidence * (0.25 + probability_edge) * quality * (1.0 + max(sharpe, 0.0)))
-    return max(0.0001, confidence * (0.25 + probability_edge))
+        return max(
+            0.0001,
+            confidence * (0.25 + probability_edge) * quality * (1.0 + max(sharpe, 0.0)) * drift_multiplier,
+        )
+    return max(0.0001, confidence * (0.25 + probability_edge) * drift_multiplier)
 
 
 def _fallback_buy_probability(
     predictions: Sequence[Mapping[str, Any]],
     performances: Mapping[str, Mapping[str, Any]],
+    drift_multipliers: Mapping[str, float] | None = None,
 ) -> float:
+    drift_multipliers = drift_multipliers or {}
     weighted = []
     for prediction in predictions:
         model_name = str(prediction.get("model_name"))
-        weight = _adaptive_model_weight(prediction, performances.get(model_name))
+        weight = _adaptive_model_weight(
+            prediction,
+            performances.get(model_name),
+            drift_multiplier=safe_float(drift_multipliers.get(model_name), 1.0),
+        )
         weighted.append((clamp(safe_float(prediction.get("probability_up"), 0.5)), weight))
     total_weight = sum(weight for _, weight in weighted)
     if total_weight <= 0:
@@ -268,11 +289,17 @@ def _fallback_buy_probability(
 def _fallback_expected_return(
     predictions: Sequence[Mapping[str, Any]],
     performances: Mapping[str, Mapping[str, Any]],
+    drift_multipliers: Mapping[str, float] | None = None,
 ) -> float:
+    drift_multipliers = drift_multipliers or {}
     weighted = []
     for prediction in predictions:
         model_name = str(prediction.get("model_name"))
-        weight = _adaptive_model_weight(prediction, performances.get(model_name))
+        weight = _adaptive_model_weight(
+            prediction,
+            performances.get(model_name),
+            drift_multiplier=safe_float(drift_multipliers.get(model_name), 1.0),
+        )
         weighted.append((safe_float(prediction.get("expected_return")), weight))
     total_weight = sum(weight for _, weight in weighted)
     if total_weight <= 0:
@@ -335,6 +362,16 @@ def _calibrated_by_prediction_id(
     return {str(row["prediction_id"]): row for row in rows if row.get("prediction_id")}
 
 
+def _apply_guardrails_if_available(
+    repository: SupabaseRepository,
+    row: Mapping[str, Any],
+    regime: Mapping[str, Any] | None,
+) -> tuple[dict[str, Any], Any]:
+    if hasattr(repository, "count_signals_since"):
+        return apply_guardrails_to_signal(row, repository=repository, regime=regime)
+    return dict(row), evaluate_signal_guardrails(row, regime=regime, daily_signal_count=0)
+
+
 def generate_meta_model_signals(
     repository: SupabaseRepository | None = None,
     stock_ids: Iterable[str] | None = None,
@@ -346,7 +383,13 @@ def generate_meta_model_signals(
 
     meta_model = train_meta_model(repository=repository, window_days=window_days)
     performances = _performance_by_model(repository)
+    drift_multipliers = (
+        recent_model_weight_multipliers(repository)
+        if hasattr(repository, "list_recent_model_drift_events")
+        else {}
+    )
     rows = []
+    audit_rows = []
     for stock_id in stock_ids:
         timestamp, predictions = _latest_predictions(repository, stock_id)
         if not timestamp or not predictions:
@@ -354,9 +397,42 @@ def generate_meta_model_signals(
         indicator = repository.get_indicator_at_or_before(stock_id, timestamp)
         regime = repository.latest_market_regime()
         calibrated = _calibrated_by_prediction_id(repository, stock_id)
+        effective_predictions = [
+            prediction
+            for prediction in predictions
+            if safe_float(drift_multipliers.get(str(prediction.get("model_name")), 1.0), 1.0) > 0
+        ]
+        if not effective_predictions:
+            raw_row = {
+                "stock_id": stock_id,
+                "timestamp": timestamp,
+                "buy_probability": 0.5,
+                "sell_probability": 0.5,
+                "expected_return": 0.0,
+                "risk_score": 0.95,
+                "suggested_hold_days": 1,
+                "signal_type": "neutral",
+            }
+            row, guardrail_decision = _apply_guardrails_if_available(repository, raw_row, regime)
+            rows.append(row)
+            audit_rows.append(
+                build_signal_audit_row(
+                    row,
+                    predictions=predictions,
+                    regime=regime,
+                    calibrated_by_prediction_id=calibrated,
+                    meta_model_output={
+                        "model_type": meta_model.model_type,
+                        "reason": "all_models_disabled_by_drift",
+                        "drift_multipliers": drift_multipliers,
+                    },
+                    guardrail_decision=guardrail_decision,
+                )
+            )
+            continue
         if meta_model.feature_names:
             features = np.array(
-                [_prediction_features(predictions, meta_model.feature_names, indicator, regime, calibrated)],
+                [_prediction_features(effective_predictions, meta_model.feature_names, indicator, regime, calibrated)],
                 dtype=float,
             )
         else:
@@ -373,28 +449,54 @@ def generate_meta_model_signals(
                         safe_float(prediction.get("probability_up"), 0.5),
                     ),
                 }
-                for prediction in predictions
+                for prediction in effective_predictions
             ]
-            buy_probability = _fallback_buy_probability(enriched_predictions, performances)
+            buy_probability = _fallback_buy_probability(
+                enriched_predictions,
+                performances,
+                drift_multipliers=drift_multipliers,
+            )
 
         if meta_model.regressor is not None and len(features):
             expected_return = safe_float(meta_model.regressor.predict(features)[0])
         else:
-            expected_return = _fallback_expected_return(predictions, performances)
+            expected_return = _fallback_expected_return(
+                effective_predictions,
+                performances,
+                drift_multipliers=drift_multipliers,
+            )
 
         risk_score = _risk_score(buy_probability, indicator, regime)
-        rows.append(
-            {
-                "stock_id": stock_id,
-                "timestamp": timestamp,
-                "buy_probability": buy_probability,
-                "sell_probability": clamp(1.0 - buy_probability),
-                "expected_return": expected_return,
-                "risk_score": risk_score,
-                "suggested_hold_days": _suggested_hold_days(risk_score, regime),
-                "signal_type": _signal_type(buy_probability, expected_return),
-            }
+        raw_row = {
+            "stock_id": stock_id,
+            "timestamp": timestamp,
+            "buy_probability": buy_probability,
+            "sell_probability": clamp(1.0 - buy_probability),
+            "expected_return": expected_return,
+            "risk_score": risk_score,
+            "suggested_hold_days": _suggested_hold_days(risk_score, regime),
+            "signal_type": _signal_type(buy_probability, expected_return),
+        }
+        row, guardrail_decision = _apply_guardrails_if_available(repository, raw_row, regime)
+        rows.append(row)
+        audit_rows.append(
+            build_signal_audit_row(
+                row,
+                predictions=effective_predictions,
+                regime=regime,
+                calibrated_by_prediction_id=calibrated,
+                meta_model_output={
+                    "model_type": meta_model.model_type,
+                    "buy_probability": buy_probability,
+                    "expected_return": expected_return,
+                    "risk_score": risk_score,
+                    "drift_multipliers": drift_multipliers,
+                },
+                guardrail_decision=guardrail_decision,
+            )
         )
 
     stored = repository.upsert_ensemble_signals(rows)
+    if audit_rows and hasattr(repository, "insert_signal_audit_logs"):
+        repository.insert_signal_audit_logs(audit_rows)
     return {"signals": len(stored), "meta_model_training_samples": meta_model.sample_size}

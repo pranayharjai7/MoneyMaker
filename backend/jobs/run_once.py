@@ -8,6 +8,7 @@ from collections.abc import Callable
 from backend.alerts.service import generate_alerts
 from backend.calibration.service import calibrate_recent_predictions
 from backend.data_pipeline.service import update_daily_prices
+from backend.drift_detection.service import detect_model_drift
 from backend.ensemble.service import generate_ensemble_signals
 from backend.features.indicators import recalculate_indicators
 from backend.feedback.service import evaluate_prediction_outcomes
@@ -16,6 +17,7 @@ from backend.meta_model.service import train_meta_model
 from backend.models.registry import run_model_predictions
 from backend.portfolio.optimizer import optimize_portfolio_weights
 from backend.regime.service import refresh_market_regime
+from backend.signal_quality.service import evaluate_live_signal_quality
 from backend.simulation.engine import run_paper_trading_simulation
 
 
@@ -54,6 +56,8 @@ COMMANDS: dict[str, Callable[[], dict[str, object]]] = {
     "paper_trading_simulation": _paper_trading_simulation,
     "alert_generation": generate_alerts,
     "feedback_evaluation": evaluate_prediction_outcomes,
+    "live_signal_quality_evaluation": evaluate_live_signal_quality,
+    "model_drift_detection": detect_model_drift,
     "full_signal_pipeline": run_full_signal_pipeline,
 }
 

@@ -4,6 +4,7 @@ from collections.abc import Iterable, Sequence
 from typing import Any
 
 from backend.db.supabase_client import get_supabase_client
+from backend.reliability.retry import RetryPolicy, retry_sync
 
 
 class SupabaseRepository:
@@ -22,6 +23,13 @@ class SupabaseRepository:
         if data is None:
             return []
         return data if isinstance(data, list) else [data]
+
+    @staticmethod
+    def _write_with_retry(operation: Any) -> Any:
+        return retry_sync(
+            operation,
+            policy=RetryPolicy(max_attempts=3, base_delay_seconds=0.2, max_delay_seconds=2.0),
+        )
 
     def list_stocks(self) -> list[dict[str, Any]]:
         response = self.client.table("stocks").select("*").order("ticker").execute()
@@ -144,6 +152,16 @@ class SupabaseRepository:
         rows = self._data(response)
         return rows[0] if rows else None
 
+    def list_recent_indicators(self, limit: int = 1000) -> list[dict[str, Any]]:
+        response = (
+            self.client.table("technical_indicators")
+            .select("*")
+            .order("timestamp", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return self._data(response)
+
     def upsert_model_predictions(self, predictions: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
         if not predictions:
             return []
@@ -212,10 +230,12 @@ class SupabaseRepository:
     ) -> list[dict[str, Any]]:
         if not outcomes:
             return []
-        response = (
-            self.client.table("prediction_outcomes")
-            .upsert(outcomes, on_conflict="prediction_id,horizon_days")
-            .execute()
+        response = self._write_with_retry(
+            lambda: (
+                self.client.table("prediction_outcomes")
+                .upsert(outcomes, on_conflict="prediction_id,horizon_days")
+                .execute()
+            )
         )
         return self._data(response)
 
@@ -230,16 +250,35 @@ class SupabaseRepository:
         response = query.order("timestamp", desc=True).limit(limit).execute()
         return self._data(response)
 
+    def list_prediction_outcomes_between(
+        self,
+        start_timestamp: str,
+        end_timestamp: str,
+        limit: int = 10000,
+    ) -> list[dict[str, Any]]:
+        response = (
+            self.client.table("prediction_outcomes")
+            .select("*")
+            .gte("timestamp", start_timestamp)
+            .lt("timestamp", end_timestamp)
+            .order("timestamp", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return self._data(response)
+
     def upsert_model_performance(
         self,
         rows: Sequence[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         if not rows:
             return []
-        response = (
-            self.client.table("model_performance")
-            .upsert(rows, on_conflict="model_name")
-            .execute()
+        response = self._write_with_retry(
+            lambda: (
+                self.client.table("model_performance")
+                .upsert(rows, on_conflict="model_name")
+                .execute()
+            )
         )
         return self._data(response)
 
@@ -252,16 +291,40 @@ class SupabaseRepository:
         )
         return self._data(response)
 
+    def insert_model_drift_events(
+        self,
+        rows: Sequence[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not rows:
+            return []
+        response = self._write_with_retry(
+            lambda: self.client.table("model_drift_events").insert(rows).execute()
+        )
+        return self._data(response)
+
+    def list_recent_model_drift_events(
+        self,
+        since_timestamp: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        query = self.client.table("model_drift_events").select("*")
+        if since_timestamp:
+            query = query.gte("created_at", since_timestamp)
+        response = query.order("created_at", desc=True).limit(limit).execute()
+        return self._data(response)
+
     def upsert_calibrated_predictions(
         self,
         rows: Sequence[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         if not rows:
             return []
-        response = (
-            self.client.table("calibrated_predictions")
-            .upsert(rows, on_conflict="prediction_id")
-            .execute()
+        response = self._write_with_retry(
+            lambda: (
+                self.client.table("calibrated_predictions")
+                .upsert(rows, on_conflict="prediction_id")
+                .execute()
+            )
         )
         return self._data(response)
 
@@ -291,10 +354,12 @@ class SupabaseRepository:
         return str(rows[0]["timestamp"]) if rows else None
 
     def upsert_market_regime(self, row: dict[str, Any]) -> dict[str, Any] | None:
-        response = (
-            self.client.table("market_regimes")
-            .upsert(row, on_conflict="timestamp")
-            .execute()
+        response = self._write_with_retry(
+            lambda: (
+                self.client.table("market_regimes")
+                .upsert(row, on_conflict="timestamp")
+                .execute()
+            )
         )
         rows = self._data(response)
         return rows[0] if rows else None
@@ -323,7 +388,9 @@ class SupabaseRepository:
         return rows[0] if rows else None
 
     def insert_meta_model_training_run(self, row: dict[str, Any]) -> dict[str, Any] | None:
-        response = self.client.table("meta_model_training_runs").insert(row).execute()
+        response = self._write_with_retry(
+            lambda: self.client.table("meta_model_training_runs").insert(row).execute()
+        )
         rows = self._data(response)
         return rows[0] if rows else None
 
@@ -341,10 +408,12 @@ class SupabaseRepository:
     def upsert_ensemble_signals(self, signals: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
         if not signals:
             return []
-        response = (
-            self.client.table("ensemble_signals")
-            .upsert(signals, on_conflict="stock_id,timestamp")
-            .execute()
+        response = self._write_with_retry(
+            lambda: (
+                self.client.table("ensemble_signals")
+                .upsert(signals, on_conflict="stock_id,timestamp")
+                .execute()
+            )
         )
         return self._data(response)
 
@@ -368,13 +437,88 @@ class SupabaseRepository:
         )
         return self._data(response)
 
+    def list_signals_for_quality(
+        self,
+        cutoff_timestamp: str,
+        limit: int = 1000,
+    ) -> list[dict[str, Any]]:
+        response = (
+            self.client.table("ensemble_signals")
+            .select("*")
+            .lte("timestamp", cutoff_timestamp)
+            .order("timestamp")
+            .limit(limit)
+            .execute()
+        )
+        return self._data(response)
+
+    def count_signals_since(self, since_timestamp: str) -> int:
+        response = (
+            self.client.table("ensemble_signals")
+            .select("id", count="exact")
+            .gte("timestamp", since_timestamp)
+            .execute()
+        )
+        return int(getattr(response, "count", 0) or len(self._data(response)))
+
+    def upsert_live_signal_performance(
+        self,
+        rows: Sequence[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not rows:
+            return []
+        response = self._write_with_retry(
+            lambda: (
+                self.client.table("live_signal_performance")
+                .upsert(rows, on_conflict="signal_id,horizon_days")
+                .execute()
+            )
+        )
+        return self._data(response)
+
+    def list_live_signal_performance(self, limit: int = 1000) -> list[dict[str, Any]]:
+        response = (
+            self.client.table("live_signal_performance")
+            .select("*")
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return self._data(response)
+
+    def upsert_model_regime_performance(
+        self,
+        rows: Sequence[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not rows:
+            return []
+        response = self._write_with_retry(
+            lambda: (
+                self.client.table("model_regime_performance")
+                .upsert(rows, on_conflict="model_name,regime")
+                .execute()
+            )
+        )
+        return self._data(response)
+
+    def list_model_regime_performance(self) -> list[dict[str, Any]]:
+        response = (
+            self.client.table("model_regime_performance")
+            .select("*")
+            .order("updated_at", desc=True)
+            .execute()
+        )
+        return self._data(response)
+
     def insert_portfolio_allocations(
         self,
         rows: Sequence[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         if not rows:
             return []
-        response = self.client.table("portfolio_allocations").insert(rows).execute()
+        response = self._write_with_retry(
+            lambda: self.client.table("portfolio_allocations").insert(rows).execute()
+        )
         return self._data(response)
 
     def list_latest_portfolio_allocations(self) -> list[dict[str, Any]]:
@@ -398,7 +542,9 @@ class SupabaseRepository:
         return self._data(response)
 
     def insert_backtest_result(self, row: dict[str, Any]) -> dict[str, Any] | None:
-        response = self.client.table("backtest_results").insert(row).execute()
+        response = self._write_with_retry(
+            lambda: self.client.table("backtest_results").insert(row).execute()
+        )
         rows = self._data(response)
         return rows[0] if rows else None
 
@@ -480,6 +626,39 @@ class SupabaseRepository:
         response = query.execute()
         return self._data(response)
 
+    def count_alerts_for_user_since(
+        self,
+        user_id: str,
+        alert_type: str,
+        since_timestamp: str,
+    ) -> int:
+        response = (
+            self.client.table("alerts")
+            .select("id", count="exact")
+            .eq("user_id", user_id)
+            .eq("alert_type", alert_type)
+            .gte("created_at", since_timestamp)
+            .execute()
+        )
+        return int(getattr(response, "count", 0) or len(self._data(response)))
+
+    def latest_alert_for_user_stock(
+        self,
+        user_id: str,
+        stock_id: str,
+    ) -> dict[str, Any] | None:
+        response = (
+            self.client.table("alerts")
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("stock_id", stock_id)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        rows = self._data(response)
+        return rows[0] if rows else None
+
     def mark_alerts_read(self, user_id: str, alert_ids: Iterable[str]) -> list[dict[str, Any]]:
         ids = list(alert_ids)
         if not ids:
@@ -493,12 +672,117 @@ class SupabaseRepository:
         )
         return self._data(response)
 
+    def get_notification_metrics(self, user_id: str) -> dict[str, Any] | None:
+        response = (
+            self.client.table("notification_metrics")
+            .select("*")
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        rows = self._data(response)
+        return rows[0] if rows else None
+
+    def list_notification_metrics(self, limit: int = 1000) -> list[dict[str, Any]]:
+        response = (
+            self.client.table("notification_metrics")
+            .select("*")
+            .order("updated_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return self._data(response)
+
+    def increment_notification_metrics(
+        self,
+        user_id: str,
+        sent: int = 0,
+        opened: int = 0,
+        ignored: int = 0,
+    ) -> dict[str, Any] | None:
+        current = self.get_notification_metrics(user_id) or {
+            "user_id": user_id,
+            "notifications_sent": 0,
+            "opened": 0,
+            "ignored": 0,
+        }
+        notifications_sent = int(current.get("notifications_sent") or 0) + max(sent, 0)
+        opened_count = int(current.get("opened") or 0) + max(opened, 0)
+        ignored_count = int(current.get("ignored") or 0) + max(ignored, 0)
+        engagement_score = 0.0
+        if notifications_sent > 0:
+            engagement_score = max(
+                0.0,
+                min(1.0, (opened_count + 0.25) / (notifications_sent + ignored_count + 0.25)),
+            )
+        row = {
+            "user_id": user_id,
+            "notifications_sent": notifications_sent,
+            "opened": opened_count,
+            "ignored": ignored_count,
+            "engagement_score": engagement_score,
+        }
+        response = self._write_with_retry(
+            lambda: (
+                self.client.table("notification_metrics")
+                .upsert(row, on_conflict="user_id")
+                .execute()
+            )
+        )
+        rows = self._data(response)
+        return rows[0] if rows else None
+
     def create_alerts(self, alerts: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
         if not alerts:
             return []
+        response = self._write_with_retry(
+            lambda: (
+                self.client.table("alerts")
+                .upsert(alerts, on_conflict="user_id,stock_id,alert_type,source_signal_timestamp")
+                .execute()
+            )
+        )
+        return self._data(response)
+
+    def list_recent_notification_events(
+        self,
+        status: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        query = self.client.table("notification_events").select("*")
+        if status:
+            query = query.eq("status", status)
+        response = query.order("created_at", desc=True).limit(limit).execute()
+        return self._data(response)
+
+    def insert_notification_dead_letters(
+        self,
+        rows: Sequence[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not rows:
+            return []
+        response = self._write_with_retry(
+            lambda: self.client.table("notification_dead_letters").insert(rows).execute()
+        )
+        return self._data(response)
+
+    def insert_signal_audit_logs(
+        self,
+        rows: Sequence[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not rows:
+            return []
+        response = self._write_with_retry(
+            lambda: self.client.table("signal_audit_log").insert(rows).execute()
+        )
+        return self._data(response)
+
+    def list_signal_audit_logs(self, limit: int = 100) -> list[dict[str, Any]]:
         response = (
-            self.client.table("alerts")
-            .upsert(alerts, on_conflict="user_id,stock_id,alert_type,source_signal_timestamp")
+            self.client.table("signal_audit_log")
+            .select("*")
+            .order("created_at", desc=True)
+            .limit(limit)
             .execute()
         )
         return self._data(response)

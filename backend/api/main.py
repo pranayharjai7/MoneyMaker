@@ -1,10 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.analytics_api import routes as analytics_routes
 from backend.api.routes import (
     alerts,
     calibration,
     feedback,
+    health as health_routes,
     portfolio,
     regime,
     signals,
@@ -14,11 +16,14 @@ from backend.api.routes import (
 )
 from backend.api.schemas import StatusOut
 from backend.core.config import get_settings
+from backend.observability.logging import CorrelationIdMiddleware, configure_json_logging
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    configure_json_logging()
     app = FastAPI(title=settings.app_name)
+    app.add_middleware(CorrelationIdMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,
@@ -36,6 +41,8 @@ def create_app() -> FastAPI:
     app.include_router(calibration.router, prefix=settings.api_prefix)
     app.include_router(regime.router, prefix=settings.api_prefix)
     app.include_router(simulation.router, prefix=settings.api_prefix)
+    app.include_router(health_routes.router, prefix=settings.api_prefix)
+    app.include_router(analytics_routes.router, prefix=settings.api_prefix)
 
     @app.get("/health", response_model=StatusOut, tags=["health"])
     def health() -> dict[str, str]:

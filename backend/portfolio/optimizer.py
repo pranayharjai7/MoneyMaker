@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import numpy as np
 
+from backend.core.config import get_settings
 from backend.core.math_utils import clamp, safe_float
 from backend.db.repository import SupabaseRepository
 
@@ -198,12 +199,19 @@ def _to_allocation_rows(candidates: list[dict[str, Any]], run_id: str) -> list[d
 def optimize_portfolio_weights(
     repository: SupabaseRepository | None = None,
     signal_limit: int = 100,
-    max_position: float = 0.12,
-    max_sector_exposure: float = 0.35,
+    max_position: float | None = None,
+    max_sector_exposure: float | None = None,
     max_semiconductor_exposure: float = 0.20,
     correlation_cap: float = 0.75,
 ) -> dict[str, int]:
     repository = repository or SupabaseRepository()
+    settings = get_settings()
+    max_position = settings.guardrail_max_position_size if max_position is None else max_position
+    max_sector_exposure = (
+        settings.guardrail_max_sector_exposure
+        if max_sector_exposure is None
+        else max_sector_exposure
+    )
     candidates = _candidate_rows(repository, signal_limit=signal_limit)
     if not candidates:
         return {"portfolio_weights": 0}
