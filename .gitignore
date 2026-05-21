@@ -19,6 +19,16 @@ env/
 backend/.env
 backend/.env.*
 !backend/.env.example
+client_secret_*.json
+**/client_secret_*.json
+*firebase-adminsdk*.json
+**/*firebase-adminsdk*.json
+*.p8
+*.pem
+*.key
+
+# Supabase local CLI state
+supabase/.temp/
 
 # IDE and OS files
 .idea/
