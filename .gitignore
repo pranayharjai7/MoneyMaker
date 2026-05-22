@@ -23,6 +23,11 @@ client_secret_*.json
 **/client_secret_*.json
 *firebase-adminsdk*.json
 **/*firebase-adminsdk*.json
+# FlutterFire / Firebase client config (generate locally via `flutterfire configure`)
+mobile/lib/firebase_options.dart
+mobile/android/app/google-services.json
+mobile/ios/Runner/GoogleService-Info.plist
+mobile/ios/GoogleService-Info.plist
 *.p8
 *.pem
 *.key
