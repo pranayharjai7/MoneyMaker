@@ -47,6 +47,12 @@ def compute_technical_indicators(prices: pd.DataFrame) -> pd.DataFrame:
     df = prices.copy()
     df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
     df = df.sort_values("timestamp").reset_index(drop=True)
+
+    if len(df) < 5:  # Minimum for volume_momentum
+        return pd.DataFrame({"timestamp": df["timestamp"]}).assign(
+            **{col: None for col in INDICATOR_COLUMNS}
+        )
+
     for column in ["open", "high", "low", "close", "volume"]:
         df[column] = pd.to_numeric(df[column], errors="coerce")
 
@@ -54,35 +60,36 @@ def compute_technical_indicators(prices: pd.DataFrame) -> pd.DataFrame:
     high = df["high"]
     low = df["low"]
     volume = df["volume"]
+    n = len(df)
 
     try:
         from ta.momentum import RSIIndicator
         from ta.trend import MACD, SMAIndicator
         from ta.volatility import AverageTrueRange, BollingerBands
 
-        rsi = RSIIndicator(close=close, window=14).rsi()
-        macd_indicator = MACD(close=close, window_slow=26, window_fast=12, window_sign=9)
-        macd = macd_indicator.macd()
-        macd_signal = macd_indicator.macd_signal()
-        sma_20 = SMAIndicator(close=close, window=20).sma_indicator()
-        sma_50 = SMAIndicator(close=close, window=50).sma_indicator()
-        bollinger = BollingerBands(close=close, window=20, window_dev=2)
-        bollinger_upper = bollinger.bollinger_hband()
-        bollinger_lower = bollinger.bollinger_lband()
-        atr = AverageTrueRange(high=high, low=low, close=close, window=14).average_true_range()
-    except ImportError:
-        rsi = _fallback_rsi(close)
-        ema_fast = close.ewm(span=12, adjust=False).mean()
-        ema_slow = close.ewm(span=26, adjust=False).mean()
-        macd = ema_fast - ema_slow
-        macd_signal = macd.ewm(span=9, adjust=False).mean()
-        sma_20 = close.rolling(window=20, min_periods=20).mean()
-        sma_50 = close.rolling(window=50, min_periods=50).mean()
-        rolling_mean = close.rolling(window=20, min_periods=20).mean()
-        rolling_std = close.rolling(window=20, min_periods=20).std()
-        bollinger_upper = rolling_mean + (2 * rolling_std)
-        bollinger_lower = rolling_mean - (2 * rolling_std)
-        atr = _fallback_atr(df)
+        rsi = RSIIndicator(close=close, window=14).rsi() if n >= 14 else pd.Series(index=df.index, dtype=float)
+        macd_indicator = MACD(close=close, window_slow=26, window_fast=12, window_sign=9) if n >= 26 else None
+        macd = macd_indicator.macd() if macd_indicator else pd.Series(index=df.index, dtype=float)
+        macd_signal = macd_indicator.macd_signal() if macd_indicator else pd.Series(index=df.index, dtype=float)
+        sma_20 = SMAIndicator(close=close, window=20).sma_indicator() if n >= 20 else pd.Series(index=df.index, dtype=float)
+        sma_50 = SMAIndicator(close=close, window=50).sma_indicator() if n >= 50 else pd.Series(index=df.index, dtype=float)
+        bollinger = BollingerBands(close=close, window=20, window_dev=2) if n >= 20 else None
+        bollinger_upper = bollinger.bollinger_hband() if bollinger else pd.Series(index=df.index, dtype=float)
+        bollinger_lower = bollinger.bollinger_lband() if bollinger else pd.Series(index=df.index, dtype=float)
+        atr = AverageTrueRange(high=high, low=low, close=close, window=14).average_true_range() if n >= 14 else pd.Series(index=df.index, dtype=float)
+    except (ImportError, Exception):
+        rsi = _fallback_rsi(close) if n >= 14 else pd.Series(index=df.index, dtype=float)
+        ema_fast = close.ewm(span=12, adjust=False).mean() if n >= 12 else None
+        ema_slow = close.ewm(span=26, adjust=False).mean() if n >= 26 else None
+        macd = ema_fast - ema_slow if (ema_fast is not None and ema_slow is not None) else pd.Series(index=df.index, dtype=float)
+        macd_signal = macd.ewm(span=9, adjust=False).mean() if (n >= 9 and macd is not None) else pd.Series(index=df.index, dtype=float)
+        sma_20 = close.rolling(window=20, min_periods=20).mean() if n >= 20 else pd.Series(index=df.index, dtype=float)
+        sma_50 = close.rolling(window=50, min_periods=50).mean() if n >= 50 else pd.Series(index=df.index, dtype=float)
+        rolling_mean = close.rolling(window=20, min_periods=20).mean() if n >= 20 else None
+        rolling_std = close.rolling(window=20, min_periods=20).std() if n >= 20 else None
+        bollinger_upper = rolling_mean + (2 * rolling_std) if rolling_mean is not None else pd.Series(index=df.index, dtype=float)
+        bollinger_lower = rolling_mean - (2 * rolling_std) if rolling_mean is not None else pd.Series(index=df.index, dtype=float)
+        atr = _fallback_atr(df) if n >= 14 else pd.Series(index=df.index, dtype=float)
 
     indicators = pd.DataFrame(
         {
