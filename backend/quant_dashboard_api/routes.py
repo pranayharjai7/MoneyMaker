@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from backend.api.auth import AuthUser, get_current_user
+from backend.api.auth import AuthUser, get_dashboard_user
 from backend.api.deps import get_repository
 from backend.audit_center.service import build_audit_center_payload, explain_signal
 from backend.calibration_intelligence.service import build_calibration_intelligence_payload
@@ -23,7 +23,7 @@ router = APIRouter(prefix="/dashboard", tags=["quant-dashboard"])
 
 @router.get("/overview")
 def dashboard_overview(
-    _: AuthUser = Depends(get_current_user),
+    _: AuthUser = Depends(get_dashboard_user),
     repository: SupabaseRepository = Depends(get_repository),
 ) -> dict:
     return build_overview_payload(repository)
@@ -31,7 +31,7 @@ def dashboard_overview(
 
 @router.get("/signals")
 def dashboard_signals(
-    _: AuthUser = Depends(get_current_user),
+    _: AuthUser = Depends(get_dashboard_user),
     repository: SupabaseRepository = Depends(get_repository),
     limit: int = Query(default=1000, ge=1, le=5000),
 ) -> dict:
@@ -40,7 +40,7 @@ def dashboard_signals(
 
 @router.get("/models")
 def dashboard_models(
-    _: AuthUser = Depends(get_current_user),
+    _: AuthUser = Depends(get_dashboard_user),
     repository: SupabaseRepository = Depends(get_repository),
 ) -> dict:
     return build_model_intelligence_payload(repository)
@@ -48,7 +48,7 @@ def dashboard_models(
 
 @router.get("/calibration")
 def dashboard_calibration(
-    _: AuthUser = Depends(get_current_user),
+    _: AuthUser = Depends(get_dashboard_user),
     repository: SupabaseRepository = Depends(get_repository),
 ) -> dict:
     return build_calibration_intelligence_payload(repository)
@@ -56,7 +56,7 @@ def dashboard_calibration(
 
 @router.get("/regimes")
 def dashboard_regimes(
-    _: AuthUser = Depends(get_current_user),
+    _: AuthUser = Depends(get_dashboard_user),
     repository: SupabaseRepository = Depends(get_repository),
 ) -> dict:
     return build_regime_analytics_payload(repository)
@@ -64,7 +64,7 @@ def dashboard_regimes(
 
 @router.get("/replay")
 def dashboard_replay(
-    _: AuthUser = Depends(get_current_user),
+    _: AuthUser = Depends(get_dashboard_user),
     repository: SupabaseRepository = Depends(get_repository),
     replay_run_id: str | None = None,
     snapshot_date: str | None = None,
@@ -78,7 +78,7 @@ def dashboard_replay(
 
 @router.get("/risk")
 def dashboard_risk(
-    _: AuthUser = Depends(get_current_user),
+    _: AuthUser = Depends(get_dashboard_user),
     repository: SupabaseRepository = Depends(get_repository),
 ) -> dict:
     return build_risk_intelligence_payload(repository)
@@ -86,7 +86,7 @@ def dashboard_risk(
 
 @router.get("/notifications")
 def dashboard_notifications(
-    _: AuthUser = Depends(get_current_user),
+    _: AuthUser = Depends(get_dashboard_user),
     repository: SupabaseRepository = Depends(get_repository),
 ) -> dict:
     return build_notification_analytics_payload(repository)
@@ -94,7 +94,7 @@ def dashboard_notifications(
 
 @router.get("/drift")
 def dashboard_drift(
-    _: AuthUser = Depends(get_current_user),
+    _: AuthUser = Depends(get_dashboard_user),
     repository: SupabaseRepository = Depends(get_repository),
     refresh: bool = Query(default=False),
 ) -> dict:
@@ -103,7 +103,7 @@ def dashboard_drift(
 
 @router.get("/infrastructure")
 def dashboard_infrastructure(
-    _: AuthUser = Depends(get_current_user),
+    _: AuthUser = Depends(get_dashboard_user),
     repository: SupabaseRepository = Depends(get_repository),
 ) -> dict:
     return build_infra_observability_payload(repository)
@@ -111,7 +111,7 @@ def dashboard_infrastructure(
 
 @router.get("/audit")
 def dashboard_audit(
-    _: AuthUser = Depends(get_current_user),
+    _: AuthUser = Depends(get_dashboard_user),
     repository: SupabaseRepository = Depends(get_repository),
     limit: int = Query(default=100, ge=1, le=500),
 ) -> dict:
@@ -121,7 +121,7 @@ def dashboard_audit(
 @router.get("/audit/{audit_id}")
 def dashboard_audit_detail(
     audit_id: str,
-    _: AuthUser = Depends(get_current_user),
+    _: AuthUser = Depends(get_dashboard_user),
     repository: SupabaseRepository = Depends(get_repository),
 ) -> dict:
     explanation = explain_signal(audit_id, repository=repository)

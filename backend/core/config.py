@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     guardrail_extreme_volatility_threshold: float = 0.45
 
     cors_origins: str = "*"
+    dashboard_api_key: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=(".env", "backend/.env"),

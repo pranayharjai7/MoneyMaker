@@ -6,6 +6,7 @@ import '../../data/models/insight_models.dart';
 import '../../data/models/portfolio_model.dart';
 import '../../data/models/signal_model.dart';
 import '../../data/models/watchlist_model.dart';
+import '../../data/models/trade_plan_model.dart';
 import '../../data/repositories/trading_repository.dart';
 import 'app_providers.dart';
 
@@ -52,6 +53,18 @@ final modelPerformanceProvider = FutureProvider<List<ModelPerformanceModel>>((re
 
 final calibrationStatusProvider = FutureProvider<CalibrationStatusModel>((ref) {
   return ref.watch(tradingRepositoryProvider).getCalibrationStatus();
+});
+
+final tradePlanProvider = FutureProvider.family<TradePlanModel, String>((ref, ticker) {
+  return ref.watch(tradingRepositoryProvider).getTradePlan(ticker);
+});
+
+final riskAnalysisProvider = FutureProvider.family<RiskAnalysisModel, String>((ref, ticker) {
+  return ref.watch(tradingRepositoryProvider).getRiskAnalysis(ticker);
+});
+
+final timeframeAnalysisProvider = FutureProvider.family<TimeframeAnalysisModel, String>((ref, ticker) {
+  return ref.watch(tradingRepositoryProvider).getTimeframeAnalysis(ticker);
 });
 
 final signalByIdProvider = Provider.family<SignalModel?, String>((ref, id) {

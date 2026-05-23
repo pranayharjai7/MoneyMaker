@@ -10,6 +10,7 @@ import '../models/portfolio_model.dart';
 import '../models/signal_model.dart';
 import '../models/stock_model.dart';
 import '../models/watchlist_model.dart';
+import '../models/trade_plan_model.dart';
 import '../services/api_client.dart';
 import '../services/cache_service.dart';
 
@@ -323,6 +324,21 @@ class TradingRepository {
       if (signal.expectedReturn.abs() < 0.02) 'Expected return edge is modest',
       if (signal.riskScore < 0.35) 'Risk model shows stable volatility and drawdown profile',
     ];
+  }
+
+  Future<TradePlanModel> getTradePlan(String ticker) async {
+    final row = await _apiClient.getMap('/trade-plans/$ticker');
+    return TradePlanModel.fromJson(row);
+  }
+
+  Future<RiskAnalysisModel> getRiskAnalysis(String ticker) async {
+    final row = await _apiClient.getMap('/risk-analysis/$ticker');
+    return RiskAnalysisModel.fromJson(row);
+  }
+
+  Future<TimeframeAnalysisModel> getTimeframeAnalysis(String ticker) async {
+    final row = await _apiClient.getMap('/timeframes/$ticker');
+    return TimeframeAnalysisModel.fromJson(row);
   }
 }
 

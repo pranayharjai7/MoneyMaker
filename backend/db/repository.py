@@ -1447,3 +1447,128 @@ class SupabaseRepository:
         )
         rows = self._data(response)
         return rows[0] if rows else None
+
+    def upsert_trade_plan(self, plan: dict[str, Any]) -> dict[str, Any] | None:
+        response = self._write_with_retry(
+            lambda: self.client.table("trade_plans").upsert(plan, on_conflict="id").execute()
+        )
+        rows = self._data(response)
+        return rows[0] if rows else None
+
+    def get_latest_trade_plan(self, stock_id: str) -> dict[str, Any] | None:
+        response = (
+            self.client.table("trade_plans")
+            .select("*")
+            .eq("stock_id", stock_id)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        rows = self._data(response)
+        return rows[0] if rows else None
+
+    def get_trade_plan_by_id(self, plan_id: str) -> dict[str, Any] | None:
+        response = (
+            self.client.table("trade_plans")
+            .select("*")
+            .eq("id", plan_id)
+            .limit(1)
+            .execute()
+        )
+        rows = self._data(response)
+        return rows[0] if rows else None
+
+    def list_trade_plans(self, limit: int = 100) -> list[dict[str, Any]]:
+        response = (
+            self.client.table("trade_plans")
+            .select("*, stocks(*)")
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return self._data(response)
+
+    def upsert_trade_targets(self, targets: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not targets:
+            return []
+        response = self._write_with_retry(
+            lambda: self.client.table("trade_targets").upsert(list(targets), on_conflict="trade_plan_id,target_label").execute()
+        )
+        return self._data(response)
+
+    def get_trade_targets(self, plan_id: str) -> list[dict[str, Any]]:
+        response = (
+            self.client.table("trade_targets")
+            .select("*")
+            .eq("trade_plan_id", plan_id)
+            .order("target_label")
+            .execute()
+        )
+        return self._data(response)
+
+    def insert_trade_stop_update(self, update: dict[str, Any]) -> dict[str, Any] | None:
+        response = self._write_with_retry(
+            lambda: self.client.table("trade_stop_updates").insert(update).execute()
+        )
+        rows = self._data(response)
+        return rows[0] if rows else None
+
+    def get_trade_stop_updates(self, plan_id: str) -> list[dict[str, Any]]:
+        response = (
+            self.client.table("trade_stop_updates")
+            .select("*")
+            .eq("trade_plan_id", plan_id)
+            .order("updated_at", desc=True)
+            .execute()
+        )
+        return self._data(response)
+
+    def insert_trade_alerts(self, alerts: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not alerts:
+            return []
+        response = self._write_with_retry(
+            lambda: self.client.table("trade_alerts").insert(list(alerts)).execute()
+        )
+        return self._data(response)
+
+    def get_trade_alerts(self, plan_id: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+        query = self.client.table("trade_alerts").select("*")
+        if plan_id:
+            query = query.eq("trade_plan_id", plan_id)
+        response = query.order("triggered_at", desc=True).limit(limit).execute()
+        return self._data(response)
+
+    def insert_trade_reasoning(self, items: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not items:
+            return []
+        response = self._write_with_retry(
+            lambda: self.client.table("trade_reasoning").insert(list(items)).execute()
+        )
+        return self._data(response)
+
+    def get_trade_reasoning(self, plan_id: str) -> list[dict[str, Any]]:
+        response = (
+            self.client.table("trade_reasoning")
+            .select("*")
+            .eq("trade_plan_id", plan_id)
+            .execute()
+        )
+        return self._data(response)
+
+    def upsert_execution_recommendations(self, recs: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not recs:
+            return []
+        response = self._write_with_retry(
+            lambda: self.client.table("execution_recommendations").upsert(list(recs)).execute()
+        )
+        return self._data(response)
+
+    def get_execution_recommendations(self, plan_id: str) -> list[dict[str, Any]]:
+        response = (
+            self.client.table("execution_recommendations")
+            .select("*")
+            .eq("trade_plan_id", plan_id)
+            .execute()
+        )
+        return self._data(response)
+

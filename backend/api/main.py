@@ -15,6 +15,7 @@ from backend.api.routes import (
     simulation,
     stocks,
     watchlist,
+    trade_planning,
 )
 from backend.api.schemas import StatusOut
 from backend.core.config import get_settings
@@ -47,6 +48,8 @@ def create_app() -> FastAPI:
     app.include_router(analytics_routes.router, prefix=settings.api_prefix)
     app.include_router(historical_router, prefix=settings.api_prefix)
     app.include_router(quant_dashboard_router, prefix=settings.api_prefix)
+    app.include_router(trade_planning.router, prefix=settings.api_prefix)
+
 
     @app.get("/health", response_model=StatusOut, tags=["health"])
     def health() -> dict[str, str]:

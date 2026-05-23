@@ -46,6 +46,12 @@ export function Sidebar() {
           );
         })}
       </nav>
+      <Link
+        href="/login"
+        className="mb-2 block text-xs text-slate-500 hover:text-accent-cyan"
+      >
+        Sign in / auth setup
+      </Link>
       <p className="text-[10px] text-slate-500">Internal ops · Not user-facing</p>
     </aside>
   );

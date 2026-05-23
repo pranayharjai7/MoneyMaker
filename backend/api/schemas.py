@@ -156,3 +156,113 @@ def with_stock_alias(row: dict[str, Any]) -> dict[str, Any]:
     if "stocks" in row and "stock" not in row:
         return {**row, "stock": row.get("stocks")}
     return row
+
+
+class TargetOut(BaseModel):
+    id: str | None = None
+    trade_plan_id: str | None = None
+    target_label: str
+    target_price: float = Field(..., alias="price")
+    probability: float
+    created_at: datetime | None = None
+
+    class Config:
+        populate_by_name = True
+
+
+class ReasoningOut(BaseModel):
+    id: str | None = None
+    trade_plan_id: str | None = None
+    factor_type: str
+    factor_text: str
+    created_at: datetime | None = None
+
+
+class RecommendationOut(BaseModel):
+    id: str | None = None
+    trade_plan_id: str | None = None
+    situation: str
+    suggested_order_type: str
+    order_price: float
+    reason: str
+    created_at: datetime | None = None
+
+
+class ExpectedMoveOut(BaseModel):
+    expected_upside_pct: float
+    expected_downside_pct: float
+    confidence_interval_low: float
+    confidence_interval_high: float
+
+
+class TradePlanOut(BaseModel):
+    id: str
+    stock_id: str
+    current_price: float
+    forecast_window_min_days: int
+    forecast_window_max_days: int
+    bullish_probability: float
+    bearish_probability: float
+    neutral_probability: float
+    confidence: str
+    regime_context: str
+    weekly_bias: str
+    daily_bias: str
+    intraday_bias: str
+    suggested_entry_low: float
+    suggested_entry_high: float
+    suggested_entry_price: float
+    entry_type: str
+    entry_timing: str
+    entry_score: float
+    stop_loss: float
+    max_suggested_risk_pct: float
+    risk_reward_ratio: float
+    expected_hold_min_days: int
+    expected_hold_max_days: int
+    suggested_execution: str
+    created_at: datetime
+    stock: StockOut | None = None
+
+
+class TradePlanDetailOut(TradePlanOut):
+    targets: list[TargetOut] = Field(default_factory=list)
+    reasoning: list[ReasoningOut] = Field(default_factory=list)
+    execution_recommendations: list[RecommendationOut] = Field(default_factory=list)
+    expected_move: ExpectedMoveOut | None = None
+
+
+class TradeStopUpdateOut(BaseModel):
+    id: str
+    trade_plan_id: str
+    old_stop_price: float
+    new_stop_price: float
+    reason: str
+    updated_at: datetime
+
+
+class TradeAlertOut(BaseModel):
+    id: str
+    trade_plan_id: str
+    alert_type: str
+    message: str
+    triggered_at: datetime
+    is_read: bool
+
+
+class RiskAnalysisOut(BaseModel):
+    ticker: str
+    suggested_entry_price: float
+    stop_loss: float
+    max_suggested_risk_pct: float
+    risk_reward_ratio: float
+    trailing_stop: str
+
+
+class TimeframeAnalysisOut(BaseModel):
+    ticker: str
+    weekly: str
+    daily: str
+    intraday: str
+    counter_trend_warning: bool
+

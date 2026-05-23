@@ -275,10 +275,27 @@ def test_overview_payload_kpis() -> None:
     assert overview["kpis"]["current_regime"] == "BULL TREND"
 
 
+def test_dashboard_api_key_auth() -> None:
+    from backend.api.auth import SupabaseJWTVerifier, get_dashboard_user
+    from backend.core.config import Settings
+
+    settings = Settings(dashboard_api_key="test-dashboard-key")
+    user = get_dashboard_user(
+        credentials=None,
+        dashboard_key="test-dashboard-key",
+        verifier=SupabaseJWTVerifier(settings),
+        settings=settings,
+    )
+    assert user.id == "dashboard-ops"
+    assert user.role == "dashboard"
+
+
 def test_dashboard_api_endpoints() -> None:
+    from backend.api.auth import get_dashboard_user
+
     app = create_app()
     app.dependency_overrides[get_repository] = lambda: FakeQuantRepository()
-    app.dependency_overrides[get_current_user] = lambda: AuthUser(
+    app.dependency_overrides[get_dashboard_user] = lambda: AuthUser(
         id="user-1",
         email="ops@moneymaker.local",
         role="authenticated",

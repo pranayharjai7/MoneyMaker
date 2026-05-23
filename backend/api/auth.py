@@ -5,13 +5,14 @@ from functools import lru_cache
 from typing import Any
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from backend.core.config import Settings, get_settings
 
 
 security = HTTPBearer(auto_error=True)
+security_optional = HTTPBearer(auto_error=False)
 
 
 @dataclass(frozen=True)
@@ -92,3 +93,32 @@ def get_current_user(
     verifier: SupabaseJWTVerifier = Depends(get_jwt_verifier),
 ) -> AuthUser:
     return verifier.verify(credentials.credentials)
+
+
+def get_dashboard_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security_optional),
+    dashboard_key: str | None = Header(default=None, alias="X-Dashboard-Key"),
+    verifier: SupabaseJWTVerifier = Depends(get_jwt_verifier),
+    settings: Settings = Depends(get_settings),
+) -> AuthUser:
+    """Authenticate internal quant dashboard via Supabase JWT or shared API key."""
+
+    configured_key = (settings.dashboard_api_key or "").strip()
+    if configured_key and dashboard_key and dashboard_key.strip() == configured_key:
+        return AuthUser(
+            id="dashboard-ops",
+            email="ops@internal.local",
+            role="dashboard",
+            claims={"dashboard_auth": "api_key"},
+        )
+
+    if credentials and credentials.credentials:
+        return verifier.verify(credentials.credentials)
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=(
+            "Dashboard authentication required. Sign in with Supabase or send "
+            "Authorization: Bearer <access_token> or X-Dashboard-Key."
+        ),
+    )

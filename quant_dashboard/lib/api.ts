@@ -1,24 +1,27 @@
 import type { OverviewPayload } from "@/lib/types";
+import { buildDashboardAuthHeaders } from "@/lib/dashboard-auth";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
-function authHeaders(): HeadersInit {
-  const token = process.env.NEXT_PUBLIC_DASHBOARD_AUTH_TOKEN;
-  if (!token) return {};
-  return { Authorization: `Bearer ${token}` };
-}
-
 export async function fetchDashboard<T>(path: string, init?: RequestInit): Promise<T> {
+  const authHeaders = await buildDashboardAuthHeaders();
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
-      ...authHeaders(),
+      ...authHeaders,
       ...(init?.headers ?? {}),
     },
     cache: "no-store",
   });
   if (!response.ok) {
+    if (response.status === 401) {
+      throw new Error(
+        `Dashboard API ${path} failed: 401 (unauthorized). ` +
+          "Set NEXT_PUBLIC_DASHBOARD_API_KEY in quant_dashboard/.env.local and DASHBOARD_API_KEY in backend/.env, " +
+          "or sign in at /login with Supabase.",
+      );
+    }
     throw new Error(`Dashboard API ${path} failed: ${response.status}`);
   }
   return (await response.json()) as T;
