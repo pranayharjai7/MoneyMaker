@@ -7,4 +7,6 @@ cd quant_dashboard
 npm run dev
 
 cd ../mobile
-flutter run -d windows
+flutter run -d windows `
+  --dart-define=SUPABASE_URL=https://your-project-ref.supabase.co `
+  --dart-define=SUPABASE_ANON_KEY=your-anon-key
