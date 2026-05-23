@@ -21,17 +21,16 @@ class AppConfig {
   factory AppConfig.fromEnvironment() {
     const supabaseUrl = String.fromEnvironment('SUPABASE_URL');
     const supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
+    const apiBaseUrlDefine = String.fromEnvironment('MONEYMAKER_API_BASE_URL');
     final defaultApiUrl = defaultTargetPlatform == TargetPlatform.android
         ? 'http://10.0.2.2:8000'
         : 'http://localhost:8000';
+    final apiBaseUrl = apiBaseUrlDefine.isNotEmpty ? apiBaseUrlDefine : defaultApiUrl;
 
     return AppConfig(
       supabaseUrl: supabaseUrl,
       supabaseAnonKey: supabaseAnonKey,
-      apiBaseUrl: String.fromEnvironment(
-        'MONEYMAKER_API_BASE_URL',
-        defaultValue: defaultApiUrl,
-      ),
+      apiBaseUrl: apiBaseUrl,
       revenueCatAndroidApiKey: const String.fromEnvironment(
         'REVENUECAT_ANDROID_API_KEY',
       ),

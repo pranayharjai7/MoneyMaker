@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
@@ -10,6 +11,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from backend.core.config import Settings, get_settings
 
+logger = logging.getLogger(__name__)
 
 security = HTTPBearer(auto_error=True)
 security_optional = HTTPBearer(auto_error=False)
@@ -41,10 +43,7 @@ class SupabaseJWTVerifier:
     def _decode_with_jwks(self, token: str) -> dict[str, Any]:
         jwks_url = self.settings.effective_jwks_url
         if not jwks_url:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Supabase JWT verification is not configured.",
-            )
+            raise jwt.PyJWTError("Supabase JWKS URL is not configured.")
         if self._jwks_client is None:
             self._jwks_client = jwt.PyJWKClient(jwks_url)
         signing_key = self._jwks_client.get_signing_key_from_jwt(token)
@@ -58,16 +57,39 @@ class SupabaseJWTVerifier:
         )
 
     def verify(self, token: str) -> AuthUser:
-        try:
-            if self.settings.supabase_jwt_secret:
-                claims = self._decode_with_secret(token)
-            else:
+        """Verify a Supabase JWT.
+
+        Strategy: try JWKS (asymmetric ES256/RS256) first — this is what
+        Supabase user-auth tokens use.  Fall back to the symmetric HS256
+        secret for legacy projects or service-role tokens.
+        """
+        claims: dict[str, Any] | None = None
+        last_error: Exception | None = None
+
+        # 1. Try JWKS (asymmetric) — preferred for user auth tokens
+        if self.settings.effective_jwks_url:
+            try:
                 claims = self._decode_with_jwks(token)
-        except jwt.PyJWTError as exc:
+            except (jwt.PyJWTError, Exception) as exc:
+                logger.debug("JWKS verification failed: %s", exc)
+                last_error = exc
+
+        # 2. Fallback: symmetric HS256 secret
+        if claims is None and self.settings.supabase_jwt_secret:
+            try:
+                claims = self._decode_with_secret(token)
+            except jwt.PyJWTError as exc:
+                logger.debug("HS256 secret verification failed: %s", exc)
+                last_error = exc
+
+        if claims is None:
+            logger.warning(
+                "JWT verification failed for token (last error: %s)", last_error
+            )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired Supabase access token.",
-            ) from exc
+            ) from last_error
 
         user_id = claims.get("sub")
         if not user_id:
