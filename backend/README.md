@@ -113,3 +113,18 @@ All mobile endpoints expect `Authorization: Bearer <supabase-access-token>`.
 ## Notes
 
 This service produces probabilistic research signals and alerting infrastructure. It should be reviewed, monitored, and compliance-approved before being used for real-money trading decisions.
+
+## Phase 5: What to do about “small backfill” (simple path)
+From root, with API keys in .env:
+### 1) Seed universes (stocks + memberships)
+    python -m backend.jobs.run_once phase5_bootstrap_universes
+### 2) Backfill 3 tickers, ~2 years (real API data)
+    python -m backend.jobs.run_once phase5_backfill_sample
+### 3) Build historical features for those tickers
+    python -m backend.jobs.run_once phase5_generate_features_sample
+### 4) Run 1-year replay on same 3 tickers
+    python -m backend.jobs.run_once phase5_replay_sample
+### 5) Bootstrap calibration + regimes + meta-model from replay
+    python -m backend.jobs.run_once phase5_bootstrap_sample
+### Or all-in-one (steps 1–5):
+    python -m backend.jobs.run_once phase5_full_pipeline_sample

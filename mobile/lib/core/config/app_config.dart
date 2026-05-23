@@ -63,4 +63,7 @@ class AppConfig {
 
   bool get hasRevenueCatKeys =>
       revenueCatAndroidApiKey.isNotEmpty || revenueCatIosApiKey.isNotEmpty;
+
+  bool get hasSupabaseConfig =>
+      supabaseUrl.isNotEmpty && supabaseAnonKey.isNotEmpty;
 }

@@ -87,6 +87,15 @@ if(PLUGIN_BUNDLED_LIBRARIES)
     COMPONENT Runtime)
 endif()
 
+# firebase_core is linked statically; Flutter may still copy its .lib beside
+# the .exe, which can break incremental Windows debug launches.
+install(CODE "
+  file(GLOB _stale_static_libs \"${INSTALL_BUNDLE_LIB_DIR}/*_plugin.lib\")
+  foreach(_lib IN LISTS _stale_static_libs)
+    file(REMOVE \"\${_lib}\")
+  endforeach()
+" COMPONENT Runtime)
+
 # Copy the native assets provided by the build.dart from all packages.
 set(NATIVE_ASSETS_DIR "${PROJECT_BUILD_DIR}native_assets/windows/")
 install(DIRECTORY "${NATIVE_ASSETS_DIR}"

@@ -19,6 +19,12 @@ from backend.portfolio.optimizer import optimize_portfolio_weights
 from backend.regime.service import refresh_market_regime
 from backend.signal_quality.service import evaluate_live_signal_quality
 from backend.simulation.engine import run_paper_trading_simulation
+from backend.historical_universe import bootstrap_all_universes
+from backend.historical_backfill import backfill_universe
+from backend.historical_features import generate_features_for_universe
+from backend.historical_replay import start_historical_replay
+from backend.backfill_orchestrator import orchestrate_historical_pipeline_sync
+from backend.bootstrap_training import run_full_bootstrap_training
 
 
 def _daily_market_update() -> dict[str, int]:
@@ -44,6 +50,46 @@ def _paper_trading_simulation() -> dict[str, object]:
     }
 
 
+def _phase5_bootstrap_universes() -> dict[str, object]:
+    return bootstrap_all_universes()
+
+
+def _phase5_backfill_sample() -> dict[str, object]:
+    return asyncio.run(
+        backfill_universe("high_liquidity", years=2, max_tickers=3)
+    )
+
+
+def _phase5_generate_features_sample() -> dict[str, object]:
+    return generate_features_for_universe("high_liquidity", max_tickers=3)
+
+
+def _phase5_replay_sample() -> dict[str, object]:
+    return start_historical_replay(
+        "high_liquidity",
+        mode="signal_only",
+        years=1,
+        max_stocks=3,
+    )
+
+
+def _phase5_full_pipeline_sample() -> dict[str, object]:
+    return orchestrate_historical_pipeline_sync(
+        "high_liquidity",
+        years=1,
+        max_stocks=3,
+    )
+
+
+def _phase5_bootstrap_sample() -> dict[str, object]:
+    from backend.db.repository import SupabaseRepository
+
+    runs = SupabaseRepository().list_replay_runs(limit=1)
+    if not runs:
+        raise RuntimeError("No replay runs found. Run phase5_replay_sample first.")
+    return run_full_bootstrap_training(str(runs[0]["id"]))
+
+
 COMMANDS: dict[str, Callable[[], dict[str, object]]] = {
     "daily_market_update": _daily_market_update,
     "indicator_recalculation": recalculate_indicators,
@@ -59,6 +105,12 @@ COMMANDS: dict[str, Callable[[], dict[str, object]]] = {
     "live_signal_quality_evaluation": evaluate_live_signal_quality,
     "model_drift_detection": detect_model_drift,
     "full_signal_pipeline": run_full_signal_pipeline,
+    "phase5_bootstrap_universes": _phase5_bootstrap_universes,
+    "phase5_backfill_sample": _phase5_backfill_sample,
+    "phase5_generate_features_sample": _phase5_generate_features_sample,
+    "phase5_replay_sample": _phase5_replay_sample,
+    "phase5_full_pipeline_sample": _phase5_full_pipeline_sample,
+    "phase5_bootstrap_sample": _phase5_bootstrap_sample,
 }
 
 

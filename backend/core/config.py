@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     polygon_api_key: str | None = None
     market_data_timeout_seconds: float = 20.0
 
+    historical_backfill_years: int = 5
+    historical_backfill_chunk_granularity: str = "year"
+    historical_backfill_provider_cooldown_seconds: float = 1.0
+
     default_tickers: str = Field(
         default="AAPL,MSFT,NVDA,AMZN,GOOGL,META,TSLA,JPM,UNH,V"
     )
@@ -76,6 +80,13 @@ class Settings(BaseSettings):
     @property
     def ticker_list(self) -> list[str]:
         return [ticker.strip().upper() for ticker in self.default_tickers.split(",") if ticker.strip()]
+
+    @property
+    def historical_backfill_chunk_granularity_normalized(self) -> str:
+        value = self.historical_backfill_chunk_granularity.strip().lower()
+        if value not in {"year", "month"}:
+            raise ValueError("historical_backfill_chunk_granularity must be 'year' or 'month'")
+        return value
 
     @property
     def cors_origin_list(self) -> list[str]:

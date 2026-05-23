@@ -42,10 +42,14 @@ supabase/.temp/
 Thumbs.db
 
 # Runtime state
-celerybeat-schedule
-celerybeat-schedule.*
+celerybeat-schedule*
 *.pid
 *.log
+
+# Node / Next.js (quant dashboard)
+node_modules/
+quant_dashboard/.next/
+quant_dashboard/out/
 
 # Build and packaging output
 build/

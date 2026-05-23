@@ -2,6 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.analytics_api import routes as analytics_routes
+from backend.historical_api import router as historical_router
+from backend.quant_dashboard_api import router as quant_dashboard_router
 from backend.api.routes import (
     alerts,
     calibration,
@@ -43,6 +45,8 @@ def create_app() -> FastAPI:
     app.include_router(simulation.router, prefix=settings.api_prefix)
     app.include_router(health_routes.router, prefix=settings.api_prefix)
     app.include_router(analytics_routes.router, prefix=settings.api_prefix)
+    app.include_router(historical_router, prefix=settings.api_prefix)
+    app.include_router(quant_dashboard_router, prefix=settings.api_prefix)
 
     @app.get("/health", response_model=StatusOut, tags=["health"])
     def health() -> dict[str, str]:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
+from datetime import UTC, datetime
 from typing import Any
 
 from backend.db.supabase_client import get_supabase_client
@@ -800,3 +801,649 @@ class SupabaseRepository:
             if row.get("user_id")
         }
         return sorted(user_ids)
+
+    def list_stock_universes(self) -> list[dict[str, Any]]:
+        response = self.client.table("stock_universes").select("*").order("name").execute()
+        return self._data(response)
+
+    def get_stock_universe_by_name(self, name: str) -> dict[str, Any] | None:
+        response = (
+            self.client.table("stock_universes")
+            .select("*")
+            .eq("name", name.strip().lower())
+            .limit(1)
+            .execute()
+        )
+        rows = self._data(response)
+        return rows[0] if rows else None
+
+    def upsert_stock_universe(self, name: str, description: str | None = None) -> dict[str, Any]:
+        row = {
+            "name": name.strip().lower(),
+            "description": description,
+        }
+        response = self._write_with_retry(
+            lambda: self.client.table("stock_universes").upsert(row, on_conflict="name").execute()
+        )
+        rows = self._data(response)
+        if rows:
+            return rows[0]
+        existing = self.get_stock_universe_by_name(name)
+        if existing:
+            return existing
+        raise RuntimeError(f"Failed to upsert stock universe '{name}'")
+
+    def replace_universe_memberships(
+        self,
+        universe_id: str,
+        stock_ids: Sequence[str],
+    ) -> list[dict[str, Any]]:
+        self._write_with_retry(
+            lambda: (
+                self.client.table("universe_memberships")
+                .delete()
+                .eq("universe_id", universe_id)
+                .execute()
+            )
+        )
+        rows = [
+            {"universe_id": universe_id, "stock_id": stock_id}
+            for stock_id in dict.fromkeys(stock_ids)
+        ]
+        if not rows:
+            return []
+        response = self._write_with_retry(
+            lambda: self.client.table("universe_memberships").insert(rows).execute()
+        )
+        return self._data(response)
+
+    def list_universe_members(self, universe_id: str) -> list[dict[str, Any]]:
+        response = (
+            self.client.table("universe_memberships")
+            .select("added_at, stocks(*)")
+            .eq("universe_id", universe_id)
+            .order("added_at", desc=True)
+            .execute()
+        )
+        return self._data(response)
+
+    def list_universe_tickers(self, universe_name: str) -> list[str]:
+        universe = self.get_stock_universe_by_name(universe_name)
+        if not universe:
+            return []
+        members = self.list_universe_members(universe["id"])
+        tickers: list[str] = []
+        for member in members:
+            stock = member.get("stocks") or {}
+            ticker = stock.get("ticker")
+            if ticker:
+                tickers.append(str(ticker).upper())
+        return sorted(tickers)
+
+    def get_price_backfill_state(
+        self,
+        stock_id: str,
+        *,
+        resolution: str = "daily",
+    ) -> dict[str, Any] | None:
+        response = (
+            self.client.table("price_backfill_state")
+            .select("*")
+            .eq("stock_id", stock_id)
+            .eq("resolution", resolution)
+            .limit(1)
+            .execute()
+        )
+        rows = self._data(response)
+        return rows[0] if rows else None
+
+    def upsert_price_backfill_state(
+        self,
+        *,
+        stock_id: str,
+        resolution: str = "daily",
+        target_start_date: str,
+        target_end_date: str,
+        status: str,
+        earliest_stored_date: str | None = None,
+        latest_stored_date: str | None = None,
+        last_backfilled_through: str | None = None,
+        last_provider: str | None = None,
+        bars_stored: int = 0,
+        chunks_total: int = 0,
+        chunks_completed: int = 0,
+        last_error: str | None = None,
+    ) -> dict[str, Any]:
+        row = {
+            "stock_id": stock_id,
+            "resolution": resolution,
+            "target_start_date": target_start_date,
+            "target_end_date": target_end_date,
+            "status": status,
+            "earliest_stored_date": earliest_stored_date,
+            "latest_stored_date": latest_stored_date,
+            "last_backfilled_through": last_backfilled_through,
+            "last_provider": last_provider,
+            "bars_stored": bars_stored,
+            "chunks_total": chunks_total,
+            "chunks_completed": chunks_completed,
+            "last_error": last_error,
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+        response = self._write_with_retry(
+            lambda: (
+                self.client.table("price_backfill_state")
+                .upsert(row, on_conflict="stock_id,resolution")
+                .execute()
+            )
+        )
+        rows = self._data(response)
+        return rows[0] if rows else row
+
+    def get_prices_in_range(
+        self,
+        stock_id: str,
+        *,
+        start_timestamp: str | None = None,
+        end_timestamp: str | None = None,
+        limit: int = 50000,
+    ) -> list[dict[str, Any]]:
+        query = self.client.table("stock_prices").select("*").eq("stock_id", stock_id)
+        if start_timestamp:
+            query = query.gte("timestamp", start_timestamp)
+        if end_timestamp:
+            query = query.lte("timestamp", end_timestamp)
+        response = query.order("timestamp").limit(limit).execute()
+        return self._data(response)
+
+    def count_prices(self, stock_id: str) -> int:
+        response = (
+            self.client.table("stock_prices")
+            .select("id", count="exact")
+            .eq("stock_id", stock_id)
+            .execute()
+        )
+        count = getattr(response, "count", None)
+        if count is not None:
+            return int(count)
+        return len(self._data(response))
+
+    def upsert_historical_features(
+        self,
+        features: Sequence[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not features:
+            return []
+        response = self._write_with_retry(
+            lambda: (
+                self.client.table("historical_features")
+                .upsert(features, on_conflict="stock_id,timestamp")
+                .execute()
+            )
+        )
+        return self._data(response)
+
+    def get_historical_features(
+        self,
+        stock_id: str,
+        *,
+        start_timestamp: str | None = None,
+        end_timestamp: str | None = None,
+        limit: int = 50_000,
+    ) -> list[dict[str, Any]]:
+        query = self.client.table("historical_features").select("*").eq("stock_id", stock_id)
+        if start_timestamp:
+            query = query.gte("timestamp", start_timestamp)
+        if end_timestamp:
+            query = query.lte("timestamp", end_timestamp)
+        response = query.order("timestamp").limit(limit).execute()
+        return self._data(response)
+
+    def create_replay_run(
+        self,
+        *,
+        universe_name: str,
+        mode: str,
+        start_date: str,
+        end_date: str,
+        meta_model_version: str = "replay_v1",
+        config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        row = {
+            "universe_name": universe_name,
+            "mode": mode,
+            "start_date": start_date,
+            "end_date": end_date,
+            "status": "pending",
+            "meta_model_version": meta_model_version,
+            "config": config or {},
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+        response = self._write_with_retry(
+            lambda: self.client.table("replay_runs").insert(row).execute()
+        )
+        rows = self._data(response)
+        return rows[0] if rows else row
+
+    def get_replay_run(self, replay_run_id: str) -> dict[str, Any] | None:
+        response = (
+            self.client.table("replay_runs")
+            .select("*")
+            .eq("id", replay_run_id)
+            .limit(1)
+            .execute()
+        )
+        rows = self._data(response)
+        return rows[0] if rows else None
+
+    def update_replay_run(self, replay_run_id: str, **fields: Any) -> dict[str, Any] | None:
+        if not fields:
+            return self.get_replay_run(replay_run_id)
+        payload = {**fields, "updated_at": datetime.now(UTC).isoformat()}
+        response = self._write_with_retry(
+            lambda: (
+                self.client.table("replay_runs")
+                .update(payload)
+                .eq("id", replay_run_id)
+                .execute()
+            )
+        )
+        rows = self._data(response)
+        return rows[0] if rows else None
+
+    def insert_historical_signals(
+        self,
+        signals: Sequence[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not signals:
+            return []
+        rows = [
+            {
+                "replay_run_id": signal["replay_run_id"],
+                "stock_id": signal["stock_id"],
+                "timestamp": signal["timestamp"],
+                "signal_type": signal["signal_type"],
+                "probability": signal["probability"],
+                "expected_return": signal["expected_return"],
+                "risk_score": signal["risk_score"],
+                "hold_days": signal["hold_days"],
+                "regime": signal["regime"],
+                "meta_model_version": signal["meta_model_version"],
+                "model_predictions": signal.get("model_predictions") or [],
+            }
+            for signal in signals
+        ]
+        response = self._write_with_retry(
+            lambda: self.client.table("historical_signals").insert(rows).execute()
+        )
+        return self._data(response)
+
+    def insert_replay_outcome(
+        self,
+        *,
+        replay_run_id: str,
+        historical_signal_id: str,
+        stock_id: str,
+        entry_timestamp: str,
+        exit_timestamp: str,
+        entry_price: float,
+        exit_price: float,
+        actual_return: float,
+        horizon_days: int,
+        outcome: str,
+        pnl: float,
+    ) -> dict[str, Any] | None:
+        row = {
+            "replay_run_id": replay_run_id,
+            "historical_signal_id": historical_signal_id,
+            "stock_id": stock_id,
+            "entry_timestamp": entry_timestamp,
+            "exit_timestamp": exit_timestamp,
+            "entry_price": entry_price,
+            "exit_price": exit_price,
+            "actual_return": actual_return,
+            "horizon_days": horizon_days,
+            "outcome": outcome,
+            "pnl": pnl,
+        }
+        response = self._write_with_retry(
+            lambda: self.client.table("replay_outcomes").insert(row).execute()
+        )
+        rows = self._data(response)
+        return rows[0] if rows else None
+
+    def insert_replay_portfolio_snapshot(
+        self,
+        *,
+        replay_run_id: str,
+        snapshot_date: str,
+        cash: float,
+        equity: float,
+        positions: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        row = {
+            "replay_run_id": replay_run_id,
+            "snapshot_date": snapshot_date,
+            "cash": cash,
+            "equity": equity,
+            "positions": positions,
+        }
+        response = self._write_with_retry(
+            lambda: (
+                self.client.table("replay_portfolio_snapshots")
+                .upsert(row, on_conflict="replay_run_id,snapshot_date")
+                .execute()
+            )
+        )
+        rows = self._data(response)
+        return rows[0] if rows else None
+
+    def list_replay_runs(self, *, limit: int = 20) -> list[dict[str, Any]]:
+        response = (
+            self.client.table("replay_runs")
+            .select("*")
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return self._data(response)
+
+    def list_historical_signals(
+        self,
+        *,
+        replay_run_id: str,
+        limit: int = 1000,
+    ) -> list[dict[str, Any]]:
+        response = (
+            self.client.table("historical_signals")
+            .select("*")
+            .eq("replay_run_id", replay_run_id)
+            .order("timestamp")
+            .limit(limit)
+            .execute()
+        )
+        return self._data(response)
+
+    def update_historical_signal(self, signal_id: str, **fields: Any) -> dict[str, Any] | None:
+        if not fields:
+            return None
+        response = self._write_with_retry(
+            lambda: (
+                self.client.table("historical_signals")
+                .update(fields)
+                .eq("id", signal_id)
+                .execute()
+            )
+        )
+        rows = self._data(response)
+        return rows[0] if rows else None
+
+    def list_replay_outcomes(
+        self,
+        *,
+        replay_run_id: str,
+        limit: int = 1000,
+    ) -> list[dict[str, Any]]:
+        response = (
+            self.client.table("replay_outcomes")
+            .select("*")
+            .eq("replay_run_id", replay_run_id)
+            .order("exit_timestamp")
+            .limit(limit)
+            .execute()
+        )
+        return self._data(response)
+
+    def list_replay_portfolio_snapshots(
+        self,
+        *,
+        replay_run_id: str,
+        limit: int = 5000,
+    ) -> list[dict[str, Any]]:
+        response = (
+            self.client.table("replay_portfolio_snapshots")
+            .select("*")
+            .eq("replay_run_id", replay_run_id)
+            .order("snapshot_date")
+            .limit(limit)
+            .execute()
+        )
+        return self._data(response)
+
+    def upsert_historical_calibration_snapshots(
+        self,
+        rows: Sequence[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not rows:
+            return []
+        response = self._write_with_retry(
+            lambda: (
+                self.client.table("historical_calibration_snapshots")
+                .upsert(rows, on_conflict="replay_run_id,model_name,as_of_date")
+                .execute()
+            )
+        )
+        return self._data(response)
+
+    def list_historical_calibration_snapshots(
+        self,
+        *,
+        replay_run_id: str,
+        limit: int = 5000,
+    ) -> list[dict[str, Any]]:
+        response = (
+            self.client.table("historical_calibration_snapshots")
+            .select("*")
+            .eq("replay_run_id", replay_run_id)
+            .order("as_of_date")
+            .limit(limit)
+            .execute()
+        )
+        return self._data(response)
+
+    def upsert_historical_regime_periods(
+        self,
+        rows: Sequence[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not rows:
+            return []
+        response = self._write_with_retry(
+            lambda: (
+                self.client.table("historical_regime_periods")
+                .upsert(rows, on_conflict="replay_run_id,start_date,regime")
+                .execute()
+            )
+        )
+        return self._data(response)
+
+    def list_historical_regime_periods(
+        self,
+        *,
+        replay_run_id: str | None = None,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        query = self.client.table("historical_regime_periods").select("*")
+        if replay_run_id:
+            query = query.eq("replay_run_id", replay_run_id)
+        response = query.order("start_date").limit(limit).execute()
+        return self._data(response)
+
+    def insert_bootstrap_training_run(
+        self,
+        *,
+        replay_run_id: str,
+        training_type: str,
+        status: str,
+        metrics: dict[str, Any],
+        meta_model_version: str | None = None,
+    ) -> dict[str, Any] | None:
+        row = {
+            "replay_run_id": replay_run_id,
+            "training_type": training_type,
+            "status": status,
+            "metrics": metrics,
+            "meta_model_version": meta_model_version,
+        }
+        response = self._write_with_retry(
+            lambda: self.client.table("bootstrap_training_runs").insert(row).execute()
+        )
+        rows = self._data(response)
+        return rows[0] if rows else None
+
+    def insert_dashboard_metrics(
+        self,
+        rows: Sequence[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not rows:
+            return []
+        response = self._write_with_retry(
+            lambda: self.client.table("dashboard_metrics").insert(rows).execute()
+        )
+        return self._data(response)
+
+    def list_dashboard_metrics(
+        self,
+        *,
+        metric_group: str | None = None,
+        metric_key: str | None = None,
+        limit: int = 1000,
+    ) -> list[dict[str, Any]]:
+        query = self.client.table("dashboard_metrics").select("*")
+        if metric_group:
+            query = query.eq("metric_group", metric_group)
+        if metric_key:
+            query = query.eq("metric_key", metric_key)
+        response = query.order("recorded_at", desc=True).limit(limit).execute()
+        return self._data(response)
+
+    def upsert_drift_visualizations(
+        self,
+        rows: Sequence[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not rows:
+            return []
+        response = self._write_with_retry(
+            lambda: self.client.table("drift_visualizations").insert(rows).execute()
+        )
+        return self._data(response)
+
+    def list_drift_visualizations(
+        self,
+        *,
+        model_name: str | None = None,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        query = self.client.table("drift_visualizations").select("*")
+        if model_name:
+            query = query.eq("model_name", model_name)
+        response = query.order("snapshot_at", desc=True).limit(limit).execute()
+        return self._data(response)
+
+    def upsert_replay_snapshots(
+        self,
+        rows: Sequence[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not rows:
+            return []
+        response = self._write_with_retry(
+            lambda: (
+                self.client.table("replay_snapshots")
+                .upsert(rows, on_conflict="replay_run_id,snapshot_date")
+                .execute()
+            )
+        )
+        return self._data(response)
+
+    def list_replay_snapshots(
+        self,
+        *,
+        replay_run_id: str | None = None,
+        snapshot_date: str | None = None,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        query = self.client.table("replay_snapshots").select("*")
+        if replay_run_id:
+            query = query.eq("replay_run_id", replay_run_id)
+        if snapshot_date:
+            query = query.eq("snapshot_date", snapshot_date)
+        response = query.order("snapshot_date", desc=True).limit(limit).execute()
+        return self._data(response)
+
+    def get_replay_snapshot_at_date(
+        self,
+        replay_run_id: str,
+        snapshot_date: str,
+    ) -> dict[str, Any] | None:
+        response = (
+            self.client.table("replay_snapshots")
+            .select("*")
+            .eq("replay_run_id", replay_run_id)
+            .eq("snapshot_date", snapshot_date)
+            .limit(1)
+            .execute()
+        )
+        rows = self._data(response)
+        return rows[0] if rows else None
+
+    def upsert_notification_engagement(
+        self,
+        rows: Sequence[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not rows:
+            return []
+        response = self._write_with_retry(
+            lambda: (
+                self.client.table("notification_engagement")
+                .upsert(rows, on_conflict="user_id,period_start,period_end")
+                .execute()
+            )
+        )
+        return self._data(response)
+
+    def list_notification_engagement(
+        self,
+        *,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        response = (
+            self.client.table("notification_engagement")
+            .select("*")
+            .order("period_end", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return self._data(response)
+
+    def insert_infra_metrics(
+        self,
+        rows: Sequence[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not rows:
+            return []
+        response = self._write_with_retry(
+            lambda: self.client.table("infra_metrics").insert(rows).execute()
+        )
+        return self._data(response)
+
+    def list_infra_metrics(
+        self,
+        *,
+        component: str | None = None,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        query = self.client.table("infra_metrics").select("*")
+        if component:
+            query = query.eq("component", component)
+        response = query.order("recorded_at", desc=True).limit(limit).execute()
+        return self._data(response)
+
+    def get_signal_audit_log(self, audit_id: str) -> dict[str, Any] | None:
+        response = (
+            self.client.table("signal_audit_log")
+            .select("*, stocks(ticker, company_name, sector)")
+            .eq("id", audit_id)
+            .limit(1)
+            .execute()
+        )
+        rows = self._data(response)
+        return rows[0] if rows else None

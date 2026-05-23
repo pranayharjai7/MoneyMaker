@@ -16,6 +16,11 @@ from backend.signal_quality.service import evaluate_live_signal_quality
 from backend.portfolio.optimizer import optimize_portfolio_weights
 from backend.regime.service import refresh_market_regime
 from backend.simulation.engine import run_paper_trading_simulation
+from backend.backfill_orchestrator import orchestrate_historical_pipeline_sync
+from backend.historical_backfill import backfill_universe
+from backend.historical_features import generate_features_for_universe
+from backend.historical_replay import start_historical_replay
+from backend.bootstrap_training import run_full_bootstrap_training
 
 
 @celery_app.task(name="backend.jobs.tasks.daily_market_update")
@@ -137,3 +142,55 @@ def run_full_signal_pipeline() -> dict[str, object]:
 @celery_app.task(name="backend.jobs.tasks.full_signal_pipeline")
 def full_signal_pipeline() -> dict[str, int]:
     return run_full_signal_pipeline()
+
+
+@celery_app.task(name="backend.jobs.tasks.historical_backfill_universe")
+def historical_backfill_universe(
+    universe_name: str = "high_liquidity",
+    years: int = 5,
+    max_tickers: int | None = 50,
+) -> dict[str, object]:
+    return asyncio.run(
+        backfill_universe(universe_name, years=years, max_tickers=max_tickers)
+    )
+
+
+@celery_app.task(name="backend.jobs.tasks.historical_feature_generation")
+def historical_feature_generation(
+    universe_name: str = "high_liquidity",
+    max_tickers: int | None = 50,
+) -> dict[str, object]:
+    return generate_features_for_universe(universe_name, max_tickers=max_tickers)
+
+
+@celery_app.task(name="backend.jobs.tasks.historical_replay_generation")
+def historical_replay_generation(
+    universe_name: str = "high_liquidity",
+    years: int = 2,
+    max_stocks: int | None = 25,
+    mode: str = "signal_only",
+) -> dict[str, object]:
+    return start_historical_replay(
+        universe_name,
+        mode=mode,  # type: ignore[arg-type]
+        years=years,
+        max_stocks=max_stocks,
+    )
+
+
+@celery_app.task(name="backend.jobs.tasks.historical_bootstrap_training")
+def historical_bootstrap_training(replay_run_id: str) -> dict[str, object]:
+    return run_full_bootstrap_training(replay_run_id)
+
+
+@celery_app.task(name="backend.jobs.tasks.historical_intelligence_pipeline")
+def historical_intelligence_pipeline(
+    universe_name: str = "high_liquidity",
+    years: int = 5,
+    max_stocks: int | None = 50,
+) -> dict[str, object]:
+    return orchestrate_historical_pipeline_sync(
+        universe_name,
+        years=years,
+        max_stocks=max_stocks,
+    )

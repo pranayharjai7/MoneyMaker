@@ -1,0 +1,10 @@
+redis-server
+uvicorn backend.api.main:app --reload
+celery -A backend.jobs.celery_app.celery_app worker --pool=solo --loglevel=INFO
+celery -A backend.jobs.celery_app.celery_app beat --loglevel=INFO
+
+cd quant_dashboard
+npm run dev
+
+cd ../mobile
+flutter run -d windows

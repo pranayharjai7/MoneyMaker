@@ -27,6 +27,20 @@ flutter run \
 
 Run `flutterfire configure` before production builds, or provide the Firebase dart-defines shown in `.env.example`.
 
+### Windows desktop
+
+Firebase push is disabled on Windows/Linux (see `lib/main.dart`). The LNK4099 PDB warnings from `firebase_app.lib` during debug builds are harmless.
+
+If `flutter run -d windows` builds successfully but fails with **"The log reader stopped unexpectedly"**, the Windows build output is usually stale (often after a partial Firebase C++ SDK download). Reset and rebuild:
+
+```bash
+flutter clean
+flutter pub get
+flutter run -d windows \
+  --dart-define=SUPABASE_URL=https://your-project-ref.supabase.co \
+  --dart-define=SUPABASE_ANON_KEY=your-publishable-or-anon-key
+```
+
 ## Supabase setup
 
 Apply `../backend/db/migrations/008_mobile_product_layer.sql`, deploy the Edge Functions under `../supabase/functions`, and create a Database Webhook:
